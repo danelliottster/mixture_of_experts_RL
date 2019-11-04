@@ -9,15 +9,17 @@ from torch import Tensor, LongTensor, optim
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-v", action="store_true", default=False, help="not implemented")
-parser.add_argument("--M_H", nargs="+", type=int, default=[20])
+parser.add_argument("--M_H", nargs="+", type=int, default=[10,10])
 parser.add_argument("--N_e", type=int, default=1)
 parser.add_argument("--scgI", type=int, default=20)
 parser.add_argument("--gamma", type=float, default=0.9)
 parser.add_argument("--rerunNum", type=int)
-parser.add_argument("--numReplays", type=int, default=200)
+parser.add_argument("--numReplays", type=int, default=50)
 parser.add_argument("--batchSize", type=int, default=50)
 parser.add_argument("--numEpisodes", type=int, default=5000)
 parser.add_argument("--episodeLen", type=int, default=250)
+parser.add_argument("--lr", type=float, default=1e-4)
+parser.add_argument("--momentum", type=float, default=0.2)
 parser.add_argument("--render", action="store_true", default=False)
 # parser.add_argument("--graph",action="store_true", default=False)
 # parser.add_argument("--saveEvalHist",action="store_true", default=False)
@@ -55,12 +57,13 @@ class Net(nn.Module):
         x = self.qout(x)
         return x
 
-    def select_action(s,a_all):
-        Qvals = []
-        for a in a_all:
-            Qin = Variable(np.append(s , a))
-            Qout = self.forward_Q(Variable(Qin) , volatile=True)
-            Qvals += [Qout[0,0]]
+    def select_action(self,s,a_all):
+        with torch.no_grad():
+            Qvals = []
+            for a in a_all:
+                Qin = Variable(Tensor(np.append(s , a)))
+                Qout = self.forward(Qin).data
+                Qvals += [Qout[0]]
         return np.argmax(Qvals)
 
     def get_parameters(self):
@@ -83,7 +86,8 @@ actions = np.linspace(-2. , 2. , 10)
 #     epsilon = 0.1
 # minEpsilon = 0.1
 # epsilonDecay = np.exp(np.log(minEpsilon)/float(T_max))
-epsilon = 0
+# epsilon = 0
+epsilon = 1.0
 # done
 # 
 
@@ -95,8 +99,8 @@ env = gym.make('Pendulum-v0')
 
 #
 # initialize PyTorch optimization algorithm
-# optimizer = optim.Adam(Qfunc.parameters(), lr=1e-3, weight_decay=0.0) 
-optimizer = optim.SGD(Qfunc.parameters(), lr=1e-2, momentum=0.0) 
+# optimizer = optim.Adam(Qfunc.parameters(), lr=args.lr, weight_decay=0.0) 
+optimizer = optim.SGD(Qfunc.parameters(), lr=args.lr, momentum=args.momentum) 
 # done
 # 
 
@@ -202,7 +206,7 @@ for episode_i in range(args.numEpisodes):
 
     #
     # print out performance on that episode
-    print("Total reward for that episode: ", np.sum([mem[2] for mem in memory[-args.episodeLen:]]))
+    print("Total reward for episode ", episode_i ,":", np.sum([mem[2] for mem in memory[-args.episodeLen:]]))
     # done
     # 
     
