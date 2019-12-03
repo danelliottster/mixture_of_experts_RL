@@ -1,11 +1,60 @@
 import gym
-import argparse, random
+import random
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torch import Tensor, LongTensor, optim
+from functools import reduce 
+import sys
+# import matplotlib.pyplot as plt
+from parameter_set import variants
+import pickle
+
+# from parameters import *
+
+# sys.path.append('/home/elliott_lab/shared/github_paramtest/mixture_of_experts_RL/')
+
+'''
+# ALSO WORKS:
+parser = argparse.ArgumentParser()
+parser.add_argument("--argfile")
+args = parser.parse_args()
+param1 = importlib.import_module(args.argfile, ".")
+'''
+#parser = argparse.ArgumentParser()
+#parser.add_argument(sys.argv[1])
+#args = parser.parse_args()
+
+# ALSO WORKS: 
+# specific_parameters = sys.argv[1]
+# general_parameter_location = '/home/elliott_lab/shared/github_paramtest/mixture_of_experts_RL/single_run_data'
+# specific_parameter_location = os.path.join(general_parameter_location, specific_parameters)
+# sys.path.insert(1, specific_parameter_location)
+
+
+
+'''
+# CURRENT THING THAT WORKS- READING FROM A PYTHON SCRIPT (IMPORTED AS MODULE): 
+param1 = importlib.import_module(sys.argv[1], ".")
+
+# argv=param1.v
+# argN_e=param1.N_e
+# argscgI=param1.scgI
+arggamma=param1.gamma
+argM_H=param1.M_H
+argnumReplays=param1.numReplays
+argbatchSize=param1.batchSize
+argnumEpisodes=param1.numEpisodes
+argepisodeLen=param1.episodeLen
+arglr=param1.lr
+argmomentum=param1.momentum
+argrender=param1.render
+'''
+
+'''
+# ORIGINAL PARAMETERS
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-v", action="store_true", default=False, help="not implemented")
@@ -31,6 +80,21 @@ parser.add_argument("--savePrefix")
 # parser.add_argument("--initWeights", nargs="+", default=None, help="File from which to load initial weight values.")
 args = parser.parse_args()
 print(args)
+'''
+
+index = sys.argv[1]
+index = int(index)
+
+argM_H=(variants[index][0])
+argnumReplays=variants[index][1]
+argbatchSize=variants[index][2]
+arglr=variants[index][3]
+argmomentum=variants[index][4]
+
+arggamma=0.9
+argnumEpisodes=3001
+argepisodeLen=250
+
 
 #
 # define a class for the ANN representing the Q-function
@@ -68,7 +132,26 @@ class Net(nn.Module):
 
     def get_parameters(self):
         return iter(reduce(lambda x,y: x+y, [list(mod.parameters()) for name,mod in self.named_children() if name in self.Qlayers]))
-Qfunc = Net(4, args.M_H)
+
+def evaluate(agent, startoff, agent_action):
+    eval_state = env.modreset(startoff)
+    eval_reward_sum = 0
+    for _ in range(argepisodeLen):
+        act_like_this = agent.select_action(eval_state, agent_action)
+        a_eval = agent_action[act_like_this:act_like_this+1]
+        eval_state_next, eval_reward, eval_done, eval_info = env.step(a_eval)
+        eval_reward_sum = eval_reward_sum + eval_reward
+        eval_state = eval_state_next
+    return eval_reward_sum
+
+x_axis = []
+angle_y_axis = []
+reward_y_axis = []
+eval_avg_reward = []
+filename = sys.argv[1]
+# out = open(filename, 'a')
+
+Qfunc = Net(4, argM_H)
 # done
 #
 
@@ -100,7 +183,7 @@ env = gym.make('Pendulum-v0')
 #
 # initialize PyTorch optimization algorithm
 # optimizer = optim.Adam(Qfunc.parameters(), lr=args.lr, weight_decay=0.0) 
-optimizer = optim.SGD(Qfunc.parameters(), lr=args.lr, momentum=args.momentum) 
+optimizer = optim.SGD(Qfunc.parameters(), lr=arglr, momentum=argmomentum) 
 # done
 # 
 
@@ -108,7 +191,7 @@ optimizer = optim.SGD(Qfunc.parameters(), lr=args.lr, momentum=args.momentum)
 # loop over episodes
 #
 memory = []
-for episode_i in range(args.numEpisodes):
+for episode_i in range(argnumEpisodes):
     #
     # reset the environment
     state = env.reset()
@@ -117,11 +200,14 @@ for episode_i in range(args.numEpisodes):
 
     #
     # loop over episode time steps
-    for t in range(args.episodeLen):
+    for t in range(argepisodeLen):
         #
         # optionally draw the env
-        if args.render:
+        '''
+        NOT RENDERING AT THE MOMENT, SO:
+        if argrender:
             env.render()
+        '''
         # done
         #
 
@@ -159,12 +245,12 @@ for episode_i in range(args.numEpisodes):
 
     #
     # loop over the number of replays for each parameter update session
-    for replay_i in range(args.numReplays):
+    for replay_i in range(argnumReplays):
         # 
         # select training samples from replay memory
         # if not enough memories, just select some fraction of them
         selected_memories_idxs = np.random.randint(0 , len(memory) ,
-                                                   min(int(len(memory)*0.5),args.batchSize))
+                                                   min(int(len(memory)*0.5),argbatchSize))
         training_inputs = Tensor(np.vstack([memory[smi][0] for smi in selected_memories_idxs])) # batchSize x M_I-1
         # done
         #
@@ -188,7 +274,7 @@ for episode_i in range(args.numEpisodes):
         rewards = Tensor([memory[smi][2] for smi in selected_memories_idxs]).unsqueeze(1)
         qvals_next , selected_actions_next = torch.max(qvals_next_tmp,dim=1)
         qvals_next = qvals_next.unsqueeze(1)
-        T = rewards + args.gamma * qvals_next
+        T = rewards + arggamma * qvals_next
         # done
         # 
 
@@ -206,10 +292,67 @@ for episode_i in range(args.numEpisodes):
 
     #
     # print out performance on that episode
-    print("Total reward for episode ", episode_i ,":", np.sum([mem[2] for mem in memory[-args.episodeLen:]]))
+    rewardSum = np.sum([mem[2] for mem in memory[-argepisodeLen:]])
+    print("Total reward for episode ", episode_i ,":", rewardSum)
+    reward_y_axis.append(rewardSum)
     # done
     # 
     
+    if ((episode_i) % 100 == 0):
+        state_list = [[-np.pi, -1], [-np.pi, -.5], [-np.pi, .5], [-np.pi, 1], [-np.pi/2, -1], [-np.pi/2, -.5],\
+                      [-np.pi/2, .5], [-np.pi/2, 1], [np.pi/2, -1], [np.pi/2, -.5], [np.pi/2, .5],\
+                      [np.pi/2, 1], [np.pi, -1], [np.pi, -.5], [np.pi, .5], [np.pi, 1]]
+        total_eval_rwd = 0
+        for st in state_list:
+            sumrwd = evaluate(Qfunc, st, actions)
+            total_eval_rwd += sumrwd
     
+        eval_avg_reward.append(total_eval_rwd/16)
+    
+    
+# out.close()  
+'''
+xpicklefile = "x"+str(filename)+".pickle"
+x_pickle = open(xpicklefile, "wb")
+pickle.dump(x_axis, x_pickle)
+x_pickle.close()
+'''
+eval_picklefile = "eval"+str(filename)+".pickle"
+eval_pickle = open(eval_picklefile, "wb")
+pickle.dump(eval_avg_reward, eval_pickle)
+eval_pickle.close()
+
+ypicklefile = "y"+str(filename)+".pickle"
+y_pickle = open(ypicklefile, "wb")
+pickle.dump(reward_y_axis, y_pickle)
+y_pickle.close()
+
 # end of loop over training episodes
 # 
+#PICKLE STUFFS:
+
+#CURRENT WORKING PLOT:
+'''    
+fig, ax = plt.subplots(figsize = (17,9))
+ax.plot(x_axis, reward_y_axis, 'g')
+ax.set(xlabel='Episode', ylabel='Reward', title='Episode vs Reward')
+ax.grid()
+pngname = str(sys.argv[1])
+fig.savefig(pngname)
+plt.show()
+'''
+ 
+'''
+# perfect side-by-side 2 plot script follows, look no further! 
+fig, (ax1, ax2) = plt.subplots(1,2, figsize=(15,7), dpi=120)
+ax1.plot(x_axis, angle_y_axis, 'g')
+ax2.plot(x_axis, reward_y_axis, 'm')
+ax1.set_title('Episode vs Angle'); ax2.set_title('Episode vs Reward')
+ax1.set_xlabel('Episodes');  ax2.set_xlabel('Episodes')  
+ax1.set_ylabel('Angle');  ax2.set_ylabel('Reward')  
+plt.grid()
+plt.tight_layout()
+plt.show()
+pngname = str(sys.argv[1])
+fig.savefig(pngname)
+'''
