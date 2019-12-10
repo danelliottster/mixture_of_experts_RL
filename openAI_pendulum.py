@@ -31,7 +31,7 @@ parser.add_argument("--numEpisodes", type=int, default=1500)
 parser.add_argument("--episodeLen", type=int, default=250)
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--momentum", type=float, default=0.2)
-parser.add_argument("--render", action="store_true", default=False)
+parser.add_argument("--render", action="store_true", default=True)
 parser.add_argument("--graph",action="store_true", default=True)
 # parser.add_argument("--saveEvalHist",action="store_true", default=False)
 # parser.add_argument("--saveWeightsInterval", type=int, default=0, help="how often to save weights.  zero for don't save. Value of one will save every eval.")
@@ -80,18 +80,21 @@ class Net(nn.Module):
     def get_parameters(self):
         return iter(reduce(lambda x,y: x+y, [list(mod.parameters()) for name,mod in self.named_children() if name in self.Qlayers]))
 
-def evaluate(agent, startoff, agent_action):
+def evaluate(agent, startoff, agent_action, render_p):
     eval_state = env.modreset(startoff)
     eval_reward_sum = 0
     eval_angles = [eval_state[:2]]; eval_velocities = [eval_state[2]];
+    eval_actions = [None]
     for _ in range(args.episodeLen):
+        if render_p:
+            env.render()
         act_like_this = agent.select_action(eval_state, agent_action)
         a_eval = agent_action[act_like_this:act_like_this+1]
         eval_state_next, eval_reward, eval_done, eval_info = env.step(a_eval)
         eval_reward_sum = eval_reward_sum + eval_reward
         eval_state = eval_state_next
-        eval_angles += [eval_state[:2]]; eval_velocities += [eval_state[2]];
-    return eval_reward_sum , [math.atan2(ea[1], ea[0]) for ea in eval_angles] , eval_velocities
+        eval_angles += [eval_state[:2]]; eval_velocities += [eval_state[2]]; eval_actions += [a_eval];
+    return eval_reward_sum , [math.atan2(ea[1], ea[0]) for ea in eval_angles] , eval_velocities , eval_actions
 
 x_axis = []
 angle_y_axis = []
@@ -150,13 +153,6 @@ for episode_i in range(args.numEpisodes):
     #
     # loop over episode time steps
     for t in range(args.episodeLen):
-        #
-        # optionally draw the env
-        if args.render:
-            env.render()
-        # done
-        #
-
         #
         # select an action
         if np.random.uniform() > epsilon:
@@ -245,13 +241,14 @@ for episode_i in range(args.numEpisodes):
     # 
     
     if ((episode_i) % 25 == 0):
-        eval_angles = []; eval_velocities = [];
+        eval_angles = []; eval_velocities = []; eval_actions = []
         total_eval_rwd = 0
         for st in EVAL_START_POS:
-            sumrwd , eval_angs , eval_vels = evaluate(Qfunc, st, actions)
+            sumrwd , eval_angs , eval_vels , eval_acts = evaluate(Qfunc, st, actions,args.render)
             total_eval_rwd += sumrwd
             eval_angles += [eval_angs]
             eval_velocities += [eval_vels]
+            eval_actions += [eval_acts]
     
         eval_avg_reward.append((episode_i,total_eval_rwd/float(len(EVAL_START_POS))))
 
@@ -284,6 +281,9 @@ for episode_i in range(args.numEpisodes):
                 eval_velocity_lines[ax_i].set_ydata(eval_velocities[ax_i])
             eval_fig.canvas.draw()
             plt.pause(0.1)
+
+
+
             
             
     
