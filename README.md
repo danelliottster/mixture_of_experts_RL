@@ -6,9 +6,21 @@ These ensembles are defined by a "crowd" of models which are only loosely couple
 
 ### Required components
 
-  * Model initialization
-  * Forward pass
-  * Combination method
+#### Model initialization
+
+Set the initial parameter values for the ensemble members.
+
+#### Update ensemble member
+
+Inputs:
+  * Experience memory
+  * Optimizer
+  * Model
+  
+ Outputs:
+  
+
+#### Combination method
 
 ### Optional components
 
